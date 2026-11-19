@@ -2,11 +2,15 @@ import React, { useState } from "react";
 import { Box, Button, MenuItem, Paper, TextField, Typography } from "@material-ui/core";
 import useGeoQuery from "./useGeoQuery";
 import BoundaryMap from "./BoundaryMap";
+import { PublishedComponent, useModulesManager } from "@openimis/fe-core";
+import { useSelector } from "react-redux";
+import { hasCapability, mappingConfiguration } from "../configuration";
+import SyncPanel from "../SyncPanel";
 
 const FIELDS = `id sourceInstance msrId districtMsrId name code msrType matched microCatchmentUuid
   boundaryStatus revision geometryRelation geometrySource syncedAt`;
-const OPTIONS = `query GeoOptions($type:String,$micro:String,$offset:Int!){
-  mappingReferences(msrType:$type,microCatchmentUuid:$micro,offset:$offset,limit:100){totalCount items{${FIELDS}}}}`;
+const OPTIONS = `query GeoOptions($type:String,$micro:String,$offset:Int!,$districtUuid:String){
+  mappingReferences(msrType:$type,microCatchmentUuid:$micro,districtUuid:$districtUuid,offset:$offset,limit:100){totalCount items{${FIELDS}}}}`;
 const SCOPE = `query GeoScope($source:String!,$district:String!,$offset:Int!,$micro:String){
   district:mappingReferences(sourceInstance:$source,msrType:"districts",districtMsrId:$district,limit:1){items{${FIELDS}}}
   catchments:mappingReferences(sourceInstance:$source,msrType:"catchments",isMicro:true,microCatchmentUuid:$micro,districtMsrId:$district,offset:$offset,limit:100){totalCount items{${FIELDS} isMicro}}}`;
@@ -67,27 +71,45 @@ function DistrictView({ district, microUuid, refresh }) {
   </Box>;
 }
 
-export default function MappingMap({ microCatchmentUuid }) {
+function MappingContent({ microCatchmentUuid, config, canSync }) {
   const [refresh, setRefresh] = useState(0);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState("");
-  const state = useGeoQuery(OPTIONS, { type: microCatchmentUuid ? null : "districts", micro: microCatchmentUuid || null, offset }, refresh);
+  const [localDistrict, setLocalDistrict] = useState(null);
+  const refreshPublications = React.useCallback(() => setRefresh((value) => value + 1), []);
+  const state = useGeoQuery(OPTIONS, { type: microCatchmentUuid ? null : "districts", micro: microCatchmentUuid || null,
+    districtUuid: microCatchmentUuid ? null : localDistrict?.uuid || null, offset }, refresh, !microCatchmentUuid && !localDistrict);
   const options = state.data?.mappingReferences?.items || [];
-  const district = options.find((r) => r.id === selected) || (microCatchmentUuid && options.length === 1 ? options[0] : null);
+  const district = options.find((r) => r.id === selected) || (options.length === 1 ? options[0] : null);
   return <Paper style={{ padding: 20 }}>
     <Box display="flex" justifyContent="space-between"><Typography variant="h5">Mapping dashboard</Typography>
-      <Button onClick={() => setRefresh((v) => v + 1)}>Refresh publications</Button></Box>
+      <Button onClick={refreshPublications}>Refresh publications</Button></Box>
+    {!microCatchmentUuid && <PublishedComponent pubRef="location.MwDistrictPicker" value={localDistrict} label="District"
+      onChange={(value) => { setLocalDistrict(value); setSelected(""); setOffset(0); }} />}
+    {!microCatchmentUuid && canSync && <SyncPanel district={localDistrict} sources={config.sources} onComplete={refreshPublications} />}
     {state.loading && <Typography>Loading permitted locations…</Typography>}
     {state.error && <Typography color="error" role="alert">{state.error}</Typography>}
-    {(!microCatchmentUuid || options.length > 1) && <TextField select fullWidth label={microCatchmentUuid ? "MSR source match" : "District"} value={district?.id || ""} onChange={(e) => setSelected(e.target.value)}>
-      <MenuItem value="">Select a district</MenuItem>
+    {options.length > 1 && <TextField select fullWidth label="MSR source match" value={district?.id || ""} onChange={(e) => setSelected(e.target.value)}>
+      <MenuItem value="">Select a source match</MenuItem>
       {options.map((r) => <MenuItem key={r.id} value={r.id}>{r.name} — {r.code} ({r.sourceInstance})</MenuItem>)}
     </TextField>}
     {!microCatchmentUuid && <Box>
       <Button disabled={!offset} onClick={() => { setSelected(""); setOffset(Math.max(0, offset - 100)); }}>Previous districts</Button>
       <Button disabled={offset + 100 >= (state.data?.mappingReferences?.totalCount || 0)} onClick={() => { setSelected(""); setOffset(offset + 100); }}>Next districts</Button>
     </Box>}
-    {!state.loading && !state.error && !options.length && <Typography>No synchronized locations are available within your access scope.</Typography>}
+    {!microCatchmentUuid && !localDistrict && <Typography>Select a district to display its published boundaries.</Typography>}
+    {(microCatchmentUuid || localDistrict) && !state.loading && !state.error && !options.length && <Typography>No synchronized locations are available within your access scope. A reviewed CoreMIS district link is required.</Typography>}
     {district && <DistrictView key={`${district.id}:${refresh}`} district={district} microUuid={microCatchmentUuid} refresh={refresh} />}
   </Paper>;
+}
+
+export default function MappingMap(props) {
+  const manager = useModulesManager();
+  const config = mappingConfiguration(manager);
+  const rights = useSelector((state) => state.core?.user?.i_user?.rights || state.core?.user?.rights || []);
+  const identity = useSelector((state) => state.core?.user?.id);
+  if (!config.enabled || !hasCapability(rights, config.viewRights)) {
+    return <Typography role="alert">Mapping is not enabled or you do not have access.</Typography>;
+  }
+  return <MappingContent key={JSON.stringify([identity, rights])} {...props} config={config} canSync={hasCapability(rights, config.syncRights)} />;
 }

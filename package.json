@@ -1,12 +1,14 @@
 {
   "name": "@openimis/fe-mapping",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shared mapping dashboard for openIMIS and CoreMIS",
   "license": "AGPL-3.0-only",
   "repository": "https://github.com/nlgfc2024/openimis-fe-mapping_js",
   "main": "dist/index.js",
   "module": "dist/index.es.js",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "rollup -c",
     "test": "node test/module.test.js && node test/geometry.test.js"
@@ -19,7 +21,9 @@
     "@material-ui/icons": "^4.11.0",
     "@openimis/fe-core": "*"
   },
-  "dependencies": {"@babel/runtime": "^7.9.0"},
+  "dependencies": {
+    "@babel/runtime": "^7.9.0"
+  },
   "devDependencies": {
     "rollup": "^2.10.0",
     "@rollup/plugin-babel": "^5.0.0",
