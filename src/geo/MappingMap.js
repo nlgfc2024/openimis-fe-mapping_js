@@ -5,20 +5,19 @@ import BoundaryMap from "./BoundaryMap";
 import { PublishedComponent, useModulesManager } from "@openimis/fe-core";
 import { useSelector } from "react-redux";
 import { hasCapability, mappingConfiguration } from "../configuration";
-import SyncPanel from "../SyncPanel";
 
-const FIELDS = `id sourceInstance msrId districtMsrId name code msrType matched microCatchmentUuid
-  boundaryStatus revision geometryRelation geometrySource syncedAt`;
-const OPTIONS = `query GeoOptions($type:String,$micro:String,$offset:Int!,$districtUuid:String){
-  mappingReferences(msrType:$type,microCatchmentUuid:$micro,districtUuid:$districtUuid,offset:$offset,limit:100){totalCount items{${FIELDS}}}}`;
+const FIELDS = `id sourceInstance externalId districtUuid name code kind matched microCatchmentUuid
+  boundaryStatus revision geometryRelation geometrySource syncedAt refreshStatus`;
+const OPTIONS = `query GeoOptions($kind:String,$micro:String,$offset:Int!,$districtUuid:String){
+  mappingAreas(kind:$kind,microCatchmentUuid:$micro,districtUuid:$districtUuid,offset:$offset,limit:100){totalCount items{${FIELDS}}}}`;
 const SCOPE = `query GeoScope($source:String!,$district:String!,$offset:Int!,$micro:String){
-  district:mappingReferences(sourceInstance:$source,msrType:"districts",districtMsrId:$district,limit:1){items{${FIELDS}}}
-  catchments:mappingReferences(sourceInstance:$source,msrType:"catchments",isMicro:true,microCatchmentUuid:$micro,districtMsrId:$district,offset:$offset,limit:100){totalCount items{${FIELDS} isMicro}}}`;
-const GEOMETRY = `query GeoGeometry($id:ID!){mappingGeometryAccess(referenceId:$id){status revision relation source geojson}}`;
+  district:mappingAreas(sourceInstance:$source,kind:"district",districtUuid:$district,limit:1){items{${FIELDS}}}
+  catchments:mappingAreas(sourceInstance:$source,kind:"micro_catchment",microCatchmentUuid:$micro,districtUuid:$district,offset:$offset,limit:100){totalCount items{${FIELDS}}}}`;
+const GEOMETRY = `query GeoGeometry($id:ID!){mappingGeometryAccess(referenceId:$id){status revision relation source geojson refreshStatus}}`;
 const STATUS_LABELS = {
   available: "Geometry available", unavailable: "No published geometry",
-  delivery_unavailable: "Geometry delivery failed. Refresh publications to retry.",
-  source_unconfigured: "The MSR source is not configured or enabled.",
+  delivery_unavailable: "No accepted geometry is available. Check the source import status.",
+  not_downloaded: "Geometry has not been imported into CoreMIS.",
   geometry_too_large: "Geometry exceeds the supported file size.",
   integrity_failure: "Geometry did not match its published checksum.",
 };
@@ -36,7 +35,9 @@ function GeometryLayer({ reference, color, refresh, onLayer }) {
     <Typography><strong>{reference.name}</strong> · {reference.code} · {reference.matched ? "Matched" : "Unmatched"}</Typography>
     <Typography variant="body2">{state.loading ? "Loading current publication…" : state.error || STATUS_LABELS[result?.status] || "Unavailable"}
       {result && ` · revision ${result.revision} · ${result.relation || "no geometry relation"} · source ${result.source || "unspecified"}`}</Typography>
-    <Typography variant="caption">Last synchronized: {reference.syncedAt || "unknown"} · MSR ID {reference.msrId}</Typography>
+    {result?.refreshStatus && !['available', 'unavailable', 'not_downloaded'].includes(result.refreshStatus) &&
+      <Typography variant="body2">The latest import could not replace the geometry ({result.refreshStatus}). The last accepted boundary is retained when available.</Typography>}
+    <Typography variant="caption">Last synchronized: {reference.syncedAt || "unknown"} · Source ID {reference.externalId}</Typography>
   </Box>;
 }
 
@@ -44,8 +45,8 @@ function DistrictView({ district, microUuid, refresh }) {
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState("");
   const [layers, setLayers] = useState({});
-  const state = useGeoQuery(SCOPE, { source: district.sourceInstance, district: district.districtMsrId, offset, micro: microUuid || null }, refresh);
-  const refs = state.data?.catchments?.items?.filter((r) => r.isMicro && (!microUuid || r.microCatchmentUuid === microUuid)) || [];
+  const state = useGeoQuery(SCOPE, { source: district.sourceInstance, district: district.districtUuid, offset, micro: microUuid || null }, refresh);
+  const refs = state.data?.catchments?.items?.filter((r) => r.kind === "micro_catchment" && (!microUuid || r.microCatchmentUuid === microUuid)) || [];
   const micro = refs.find((r) => r.id === selected) || (microUuid ? refs[0] : null);
   const districtRef = state.data?.district?.items?.[0];
   const update = React.useCallback((id, layer) => setLayers((current) => {
@@ -71,31 +72,30 @@ function DistrictView({ district, microUuid, refresh }) {
   </Box>;
 }
 
-function MappingContent({ microCatchmentUuid, config, canSync }) {
+function MappingContent({ microCatchmentUuid }) {
   const [refresh, setRefresh] = useState(0);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState("");
   const [localDistrict, setLocalDistrict] = useState(null);
   const refreshPublications = React.useCallback(() => setRefresh((value) => value + 1), []);
-  const state = useGeoQuery(OPTIONS, { type: microCatchmentUuid ? null : "districts", micro: microCatchmentUuid || null,
+  const state = useGeoQuery(OPTIONS, { kind: microCatchmentUuid ? null : "district", micro: microCatchmentUuid || null,
     districtUuid: microCatchmentUuid ? null : localDistrict?.uuid || null, offset }, refresh, !microCatchmentUuid && !localDistrict);
-  const options = state.data?.mappingReferences?.items || [];
+  const options = state.data?.mappingAreas?.items || [];
   const district = options.find((r) => r.id === selected) || (options.length === 1 ? options[0] : null);
   return <Paper style={{ padding: 20 }}>
     <Box display="flex" justifyContent="space-between"><Typography variant="h5">Mapping dashboard</Typography>
-      <Button onClick={refreshPublications}>Refresh publications</Button></Box>
+      <Button onClick={refreshPublications}>Refresh map</Button></Box>
     {!microCatchmentUuid && <PublishedComponent pubRef="location.MwDistrictPicker" value={localDistrict} label="District"
       onChange={(value) => { setLocalDistrict(value); setSelected(""); setOffset(0); }} />}
-    {!microCatchmentUuid && canSync && <SyncPanel district={localDistrict} sources={config.sources} onComplete={refreshPublications} />}
     {state.loading && <Typography>Loading permitted locations…</Typography>}
     {state.error && <Typography color="error" role="alert">{state.error}</Typography>}
-    {options.length > 1 && <TextField select fullWidth label="MSR source match" value={district?.id || ""} onChange={(e) => setSelected(e.target.value)}>
+    {options.length > 1 && <TextField select fullWidth label="Source match" value={district?.id || ""} onChange={(e) => setSelected(e.target.value)}>
       <MenuItem value="">Select a source match</MenuItem>
       {options.map((r) => <MenuItem key={r.id} value={r.id}>{r.name} — {r.code} ({r.sourceInstance})</MenuItem>)}
     </TextField>}
     {!microCatchmentUuid && <Box>
       <Button disabled={!offset} onClick={() => { setSelected(""); setOffset(Math.max(0, offset - 100)); }}>Previous districts</Button>
-      <Button disabled={offset + 100 >= (state.data?.mappingReferences?.totalCount || 0)} onClick={() => { setSelected(""); setOffset(offset + 100); }}>Next districts</Button>
+      <Button disabled={offset + 100 >= (state.data?.mappingAreas?.totalCount || 0)} onClick={() => { setSelected(""); setOffset(offset + 100); }}>Next districts</Button>
     </Box>}
     {!microCatchmentUuid && !localDistrict && <Typography>Select a district to display its published boundaries.</Typography>}
     {(microCatchmentUuid || localDistrict) && !state.loading && !state.error && !options.length && <Typography>No synchronized locations are available within your access scope. A reviewed CoreMIS district link is required.</Typography>}
@@ -111,5 +111,5 @@ export default function MappingMap(props) {
   if (!config.enabled || !hasCapability(rights, config.viewRights)) {
     return <Typography role="alert">Mapping is not enabled or you do not have access.</Typography>;
   }
-  return <MappingContent key={JSON.stringify([identity, rights])} {...props} config={config} canSync={hasCapability(rights, config.syncRights)} />;
+  return <MappingContent key={JSON.stringify([identity, rights])} {...props} />;
 }

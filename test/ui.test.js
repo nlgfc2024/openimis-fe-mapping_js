@@ -22,7 +22,7 @@ const manager = { getConf: (module, key, fallback) => module === 'fe-mapping' ? 
 const dispatch = (action) => {
   operations.push(action);
   if (action.mutation) return Promise.resolve({ status: 2, clientMutationId: 'request-1' });
-  return Promise.resolve({ payload: { data: { mappingReferences: { items: [], totalCount: 0 } } } });
+  return Promise.resolve({ payload: { data: { mappingAreas: { items: [], totalCount: 0 } } } });
 };
 const core = {
   useModulesManager: () => manager,
@@ -56,20 +56,9 @@ const render = async (props = {}) => act(async () => { ReactDOM.render(React.cre
   await render();
   await act(async () => { Simulate.click([...root.querySelectorAll('button')].find((button) => button.textContent === 'Pick Dedza')); await Promise.resolve(); });
   assert(operations.some((operation) => operation.variables?.districtUuid === 'district-uuid'));
-  const start = [...root.querySelectorAll('button')].find((button) => button.textContent.includes('Synchronize selected district'));
-  assert(start && !start.disabled);
-  await act(async () => { Simulate.click(start); await Promise.resolve(); });
-  assert.deepEqual(operations.find((operation) => operation.mutation).variables.input, {
-    sourceInstance: 'msr-malawi', districtUuid: 'district-uuid', clientMutationId: 'request-1',
-  });
-  assert(refs.some((item) => item.pubRef === 'core.AsyncJobProgress' && item.clientMutationId === 'request-1'));
-  assert([...root.querySelectorAll('button')].find((button) => button.textContent.includes('Synchronize selected district')).disabled);
-  state = { job: { status: 'SUCCESS', clientMutationId: 'older-request' }, isTerminal: true };
-  await render();
-  assert([...root.querySelectorAll('button')].find((button) => button.textContent.includes('Synchronize selected district')).disabled);
-  state = { job: { status: 'SUCCESS', clientMutationId: 'request-1' }, isTerminal: true };
-  await render();
-  assert(![...root.querySelectorAll('button')].find((button) => button.textContent.includes('Synchronize selected district')).disabled);
+  assert(!root.textContent.includes('Synchronize selected district'));
+  assert(operations.every((operation) => !operation.mutation));
+  assert(operations.some((operation) => operation.query?.includes('mappingAreas')));
   act(() => { ReactDOM.unmountComponentAtNode(root); });
   const project = load(path.resolve(__dirname, '../../openimis-fe-project_social_protection_js/src/components/ProjectBoundaryTab.js'), mocks);
   const props = { value: 'geospatial-boundary', project: { id: 'project', microCatchment: { uuid: 'micro-uuid' } }, rights: [954001] };
@@ -89,7 +78,7 @@ const render = async (props = {}) => act(async () => { ReactDOM.render(React.cre
   act(() => { ReactDOM.render(React.createElement(bridge), root); });
   assert(root.querySelector('[data-pubref="mapping.MappingMap"]'));
   act(() => { ReactDOM.unmountComponentAtNode(root); });
-  console.log('Host UI checks passed: district picker, scoped sync variables, duplicate guard, progress reuse, project rights and legacy bridge.');
+  console.log('Host UI checks passed: district picker, scoped sync variables, read-only provider-neutral queries, project rights and legacy bridge.');
   dom.window.close();
   process.exit(0);
 })().catch((error) => { console.error(error); dom.window.close(); process.exit(1); });

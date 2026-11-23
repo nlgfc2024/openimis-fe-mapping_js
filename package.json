@@ -1,6 +1,6 @@
 {
   "name": "@openimis/fe-mapping",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Shared mapping dashboard for openIMIS and CoreMIS",
   "license": "AGPL-3.0-only",
   "repository": "https://github.com/nlgfc2024/openimis-fe-mapping_js",
