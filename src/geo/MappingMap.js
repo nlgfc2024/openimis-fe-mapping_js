@@ -1,26 +1,24 @@
 import React, { useState } from "react";
-import { Box, Button, MenuItem, Paper, TextField, Typography } from "@material-ui/core";
+import { Box, Button, MenuItem, Paper, TextField, Typography, TablePagination } from "@material-ui/core";
 import useGeoQuery from "./useGeoQuery";
 import BoundaryMap from "./BoundaryMap";
+import PublicationStatus from "./PublicationStatus";
+import { usablePoint } from "./publication";
 import { PublishedComponent, useModulesManager } from "@openimis/fe-core";
 import { useSelector } from "react-redux";
 import { hasCapability, mappingConfiguration } from "../configuration";
 
 const FIELDS = `id sourceInstance externalId districtUuid name code kind matched microCatchmentUuid
-  boundaryStatus revision geometryRelation geometrySource syncedAt refreshStatus`;
+  boundaryStatus revision geometryRelation geometrySource syncedAt refreshStatus geometryRevision geometryUpdatedAt latitude longitude pointStatus`;
 const OPTIONS = `query GeoOptions($kind:String,$micro:String,$offset:Int!,$districtUuid:String){
   mappingAreas(kind:$kind,microCatchmentUuid:$micro,districtUuid:$districtUuid,offset:$offset,limit:100){totalCount items{${FIELDS}}}}`;
 const SCOPE = `query GeoScope($source:String!,$district:String!,$offset:Int!,$micro:String){
   district:mappingAreas(sourceInstance:$source,kind:"district",districtUuid:$district,limit:1){items{${FIELDS}}}
   catchments:mappingAreas(sourceInstance:$source,kind:"micro_catchment",microCatchmentUuid:$micro,districtUuid:$district,offset:$offset,limit:100){totalCount items{${FIELDS}}}}`;
-const GEOMETRY = `query GeoGeometry($id:ID!){mappingGeometryAccess(referenceId:$id){status revision relation source geojson refreshStatus}}`;
-const STATUS_LABELS = {
-  available: "Geometry available", unavailable: "No published geometry",
-  delivery_unavailable: "No accepted geometry is available. Check the source import status.",
-  not_downloaded: "Geometry has not been imported into CoreMIS.",
-  geometry_too_large: "Geometry exceeds the supported file size.",
-  integrity_failure: "Geometry did not match its published checksum.",
-};
+const GEOMETRY = `query GeoGeometry($id:ID!){mappingGeometryAccess(referenceId:$id){status revision relation source geojson refreshStatus acceptedAt importedAt observedRevision}}`;
+const POINTS = `query GeographicPoints($id:ID!,$offset:Int!,$limit:Int!){
+  mappingPoints(areaReferenceId:$id,offset:$offset,limit:$limit){totalCount scopedCount items{${FIELDS}}}}`;
+const EMPTY = [];
 
 function GeometryLayer({ reference, color, refresh, onLayer }) {
   const state = useGeoQuery(GEOMETRY, { id: reference.id }, refresh);
@@ -31,13 +29,10 @@ function GeometryLayer({ reference, color, refresh, onLayer }) {
       geojson: result.geojson } : null);
     return () => onLayer(reference.id, null);
   }, [result, reference.id, color]);
-  return <Box my={1}>
-    <Typography><strong>{reference.name}</strong> · {reference.code} · {reference.matched ? "Matched" : "Unmatched"}</Typography>
-    <Typography variant="body2">{state.loading ? "Loading current publication…" : state.error || STATUS_LABELS[result?.status] || "Unavailable"}
-      {result && ` · revision ${result.revision} · ${result.relation || "no geometry relation"} · source ${result.source || "unspecified"}`}</Typography>
-    {result?.refreshStatus && !['available', 'unavailable', 'not_downloaded'].includes(result.refreshStatus) &&
-      <Typography variant="body2">The latest import could not replace the geometry ({result.refreshStatus}). The last accepted boundary is retained when available.</Typography>}
-    <Typography variant="caption">Last synchronized: {reference.syncedAt || "unknown"} · Source ID {reference.externalId}</Typography>
+  return <Box>
+    <PublicationStatus reference={reference} result={result} loading={state.loading} error={state.error} />
+    {usablePoint(reference) && result?.status !== "available" &&
+      <Typography variant="body2">Geographic coordinates are available independently of a boundary.</Typography>}
   </Box>;
 }
 
@@ -45,10 +40,23 @@ function DistrictView({ district, microUuid, refresh }) {
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState("");
   const [layers, setLayers] = useState({});
+  const [pointPage, setPointPage] = useState(0);
+  const [pointPageSize, setPointPageSize] = useState(50);
   const state = useGeoQuery(SCOPE, { source: district.sourceInstance, district: district.districtUuid, offset, micro: microUuid || null }, refresh);
   const refs = state.data?.catchments?.items?.filter((r) => r.kind === "micro_catchment" && (!microUuid || r.microCatchmentUuid === microUuid)) || [];
   const micro = refs.find((r) => r.id === selected) || (microUuid ? refs[0] : null);
   const districtRef = state.data?.district?.items?.[0];
+  const pointArea = micro || districtRef;
+  const pointState = useGeoQuery(POINTS, { id: pointArea?.id || "", offset: pointPage * pointPageSize, limit: pointPageSize },
+    refresh, state.loading || !!state.error || !pointArea);
+  const pointData = pointState.data?.mappingPoints;
+  const points = pointData?.items || EMPTY;
+  const lastPointPage = Math.max(0, Math.ceil((pointData?.totalCount || 0) / pointPageSize) - 1);
+  React.useEffect(() => {
+    if (pointData && pointPage > lastPointPage) setPointPage(0);
+  }, [pointData, pointPage, lastPointPage]);
+
+
   const update = React.useCallback((id, layer) => setLayers((current) => {
     const next = { ...current }; if (layer) next[id] = layer; else delete next[id]; return next;
   }), []);
@@ -57,15 +65,27 @@ function DistrictView({ district, microUuid, refresh }) {
   return <Box>
     {state.error && <Typography color="error" role="alert">{state.error}</Typography>}
     {!microUuid && <TextField select fullWidth label="Micro-catchment" value={micro?.id || ""}
-      onChange={(e) => { setSelected(e.target.value); setLayers({}); }}>
+      onChange={(e) => { setSelected(e.target.value); setLayers({}); setPointPage(0); }}>
       <MenuItem value="">District only</MenuItem>
       {refs.map((r) => <MenuItem key={r.id} value={r.id}>{r.name} — {r.code}{r.matched ? "" : " (unmatched)"}</MenuItem>)}
     </TextField>}
     {!microUuid && <Box>
-      <Button disabled={!offset} onClick={() => { setSelected(""); setOffset(Math.max(0, offset - 100)); }}>Previous catchments</Button>
-      <Button disabled={offset + 100 >= (state.data?.catchments?.totalCount || 0)} onClick={() => { setSelected(""); setOffset(offset + 100); }}>Next catchments</Button>
+      <Button disabled={!offset} onClick={() => { setSelected(""); setPointPage(0); setOffset(Math.max(0, offset - 100)); }}>Previous catchments</Button>
+      <Button disabled={offset + 100 >= (state.data?.catchments?.totalCount || 0)} onClick={() => { setSelected(""); setPointPage(0); setOffset(offset + 100); }}>Next catchments</Button>
     </Box>}
-    <BoundaryMap key={key} layers={state.loading || state.error ? [] : visibleLayers} />
+    <BoundaryMap key={key} layers={state.loading || state.error ? EMPTY : visibleLayers} points={points} />
+    {pointArea && <Box my={1}>
+      <Typography variant="body2">{micro ? "Points for the selected micro-catchment and its verified members." : "Geographic points in the selected district and source."} Coordinates are geographic reference data.</Typography>
+      {pointState.loading && <Typography role="status">Reading stored geographic coordinates…</Typography>}
+      {pointState.error && <Typography color="error" role="alert">{pointState.error}</Typography>}
+      {pointData && <>
+        <Typography variant="body2">{pointData.totalCount} of {pointData.scopedCount} geographic records have usable coordinates.
+          {pointData.totalCount === 0 && " No usable geographic coordinates are stored for this selection."}</Typography>
+        <TablePagination component="div" count={pointData.totalCount} page={Math.min(pointPage, lastPointPage)} rowsPerPage={pointPageSize}
+          rowsPerPageOptions={[25, 50, 100]} labelRowsPerPage="Points per page" onPageChange={(_, page) => setPointPage(page)}
+          onRowsPerPageChange={(event) => { setPointPageSize(Number(event.target.value)); setPointPage(0); }} />
+      </>}
+    </Box>}
     {districtRef && <GeometryLayer key={`d${key}`} reference={districtRef} color="#1565c0" refresh={refresh} onLayer={update} />}
     {micro && <GeometryLayer key={`m${key}`} reference={micro} color="#c65102" refresh={refresh} onLayer={update} />}
     {!state.loading && !refs.length && <Typography>No matching micro-catchment references on this page.</Typography>}
@@ -97,8 +117,8 @@ function MappingContent({ microCatchmentUuid }) {
       <Button disabled={!offset} onClick={() => { setSelected(""); setOffset(Math.max(0, offset - 100)); }}>Previous districts</Button>
       <Button disabled={offset + 100 >= (state.data?.mappingAreas?.totalCount || 0)} onClick={() => { setSelected(""); setOffset(offset + 100); }}>Next districts</Button>
     </Box>}
-    {!microCatchmentUuid && !localDistrict && <Typography>Select a district to display its published boundaries.</Typography>}
-    {(microCatchmentUuid || localDistrict) && !state.loading && !state.error && !options.length && <Typography>No synchronized locations are available within your access scope. A reviewed CoreMIS district link is required.</Typography>}
+    {!microCatchmentUuid && !localDistrict && <Typography>Select a district to display its geographic information.</Typography>}
+    {(microCatchmentUuid || localDistrict) && !state.loading && !state.error && !options.length && <Typography>No geographic information is available for this selection within your access scope.</Typography>}
     {district && <DistrictView key={`${district.id}:${refresh}`} district={district} microUuid={microCatchmentUuid} refresh={refresh} />}
   </Paper>;
 }

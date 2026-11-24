@@ -54,3 +54,27 @@ node_modules source is edited. Host component tests cover view guards, existing
 picker use, read-only queries and project/legacy bridges. The retained SVG map
 supports polygons, labels, pan/zoom/fit; basemap, point layers and beneficiary GPS
 remain separate implementation chunks.
+
+## Geographic point layers
+
+The shared map displays stored latitude/longitude pairs alongside boundaries or
+on their own. Point visibility uses Material UI layer controls; clicking or
+keyboard-selecting a point shows its type, source identity, coordinates, quality
+status and last import time. Fit map includes the visible boundaries and the
+current point page. CoreMIS's district picker is retained, pagination uses the
+existing Material UI table pagination component, and dates use CoreMIS's shared
+formatter. No additional map library/runtime is installed.
+
+Points come from `mappingPoints`. Selecting a micro-catchment restricts them to
+that area and its stored verified memberships; there is no polygon-based coverage
+inference. Only the current point page is drawn, with counts shown explicitly.
+No coordinate pairs or polygon centres are fabricated. Boundary GeoJSON remains
+polygon-based; this chunk reads points from the separate geographic coordinate
+fields. Household/beneficiary GPS is a separate permissioned integration.
+
+Publication information distinguishes the last imported revision and the displayed
+boundary revision, with import/geometry-acceptance times and a retained-boundary
+warning after replacement failure. CoreMIS date formatting is reused. An optional
+numeric `fe-mapping.staleAfterDays` warns when an import exceeds the configured
+age. The default is unset: the module does not invent an age policy or claim the
+upstream source is current. Refresh map remains a local read.

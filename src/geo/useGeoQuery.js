@@ -7,7 +7,7 @@ export default function useGeoQuery(operation, variables, refresh = 0, skip = fa
   const identity = useSelector((state) => state.core?.user?.id);
   const rights = useSelector((state) => state.core?.user?.i_user?.rights || state.core?.user?.rights || state.core?.rights);
   const variablesKey = JSON.stringify(variables);
-  const key = JSON.stringify([identity, rights, variables]);
+  const key = JSON.stringify([identity, rights, variables, operation, refresh]);
   const [state, setState] = useState({ loading: true, data: null, error: null, key: null });
   useEffect(() => {
     if (skip) return undefined;
