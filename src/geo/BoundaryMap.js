@@ -6,12 +6,13 @@ import { useModulesManager, useTranslations } from "@openimis/fe-core";
 const EMPTY = [];
 const POINT_COLOR = "#6a1b9a";
 
-export default function BoundaryMap({ layers = EMPTY, points = EMPTY }) {
+export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdPoints = EMPTY }) {
   const manager = useModulesManager();
   const { formatDateTimeFromISO } = useTranslations("mapping", manager);
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
   const [hidden, setHidden] = useState({});
   const [showPoints, setShowPoints] = useState(true);
+  const [showHouseholds, setShowHouseholds] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const prepared = useMemo(() => {
     const valid = [], markers = [], errors = [];
@@ -19,15 +20,19 @@ export default function BoundaryMap({ layers = EMPTY, points = EMPTY }) {
       try { valid.push({ ...layer, paths: polygonPaths(layer.geojson) }); }
       catch (_) { errors.push(`${layer.name}: the stored geometry cannot be rendered.`); }
     });
-    if (showPoints) points.forEach((point) => {
+    const visiblePoints = [...(showPoints ? points : EMPTY), ...(showHouseholds ? householdPoints : EMPTY)];
+    visiblePoints.forEach((point) => {
       try { markers.push({ ...point, point: projectPoint([point.longitude, point.latitude]) }); }
       catch (_) { errors.push(`${point.name}: the stored coordinates cannot be rendered.`); }
     });
     return { ...fitPaths(valid, markers), errors };
-  }, [layers, points, hidden, showPoints]);
-  useEffect(() => { setView({ zoom: 1, x: 0, y: 0 }); }, [layers, points, hidden, showPoints]);
+  }, [layers, points, householdPoints, hidden, showPoints, showHouseholds]);
+  useEffect(() => { setView({ zoom: 1, x: 0, y: 0 }); }, [layers, points, householdPoints, hidden, showPoints, showHouseholds]);
   const move = (x, y) => setView((v) => ({ ...v, x: v.x + x, y: v.y + y }));
   const selected = prepared.markers.find((point) => point.id === selectedId);
+  useEffect(() => {
+    if (selectedId && !selected) setSelectedId(null);
+  }, [selectedId, selected]);
   const describe = (point) => `${point.name} · ${point.kind.replace(/_/g, " ")} · ${point.sourceInstance} · ${point.latitude}, ${point.longitude}`;
   return <Box>
     <Box display="flex" flexWrap="wrap">
@@ -52,7 +57,8 @@ export default function BoundaryMap({ layers = EMPTY, points = EMPTY }) {
           }} style={{ cursor: "pointer" }}>
           <title>{describe(point)}</title>
           <circle cx={point.point[0]} cy={point.point[1]} r={(point.id === selectedId ? 7 : 5) / view.zoom}
-            fill={point.id === selectedId ? POINT_COLOR : "white"} stroke={POINT_COLOR} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+            fill={point.id === selectedId ? (point.kind === "household" ? "#008577" : POINT_COLOR) : "white"}
+            stroke={point.kind === "household" ? "#008577" : POINT_COLOR} strokeWidth="2" vectorEffect="non-scaling-stroke" />
         </g>)}
       </g>
     </svg>
@@ -63,11 +69,18 @@ export default function BoundaryMap({ layers = EMPTY, points = EMPTY }) {
       label={<span style={{ color: layer.color }}>{layer.name}</span>} />)}
     <FormControlLabel control={<Checkbox checked={showPoints} onChange={() => setShowPoints((value) => !value)} />}
       label={<span style={{ color: POINT_COLOR }}>Geographic points</span>} />
+    {householdPoints.length > 0 && <FormControlLabel control={<Checkbox checked={showHouseholds} onChange={() => setShowHouseholds((value) => !value)} />}
+      label={<span style={{ color: "#008577" }}>Enrolled households</span>} />}
     {selected && <Paper variant="outlined" style={{ padding: 12 }} role="status" aria-label="Geographic point details">
       <Typography><strong>{selected.name}</strong> · {selected.code}</Typography>
-      <Typography variant="body2">Type: {selected.kind.replace(/_/g, " ")} · Source: {selected.sourceInstance} · Source ID: {selected.externalId}</Typography>
+      <Typography variant="body2">Type: {selected.kind.replace(/_/g, " ")} · Source: {selected.sourceInstance}
+        {selected.externalId && ` · Source ID: ${selected.externalId}`}</Typography>
       <Typography variant="body2">Latitude: {selected.latitude} · Longitude: {selected.longitude} · Coordinate status: {selected.pointStatus || "not specified"}</Typography>
       <Typography variant="body2">Last imported: {selected.syncedAt ? formatDateTimeFromISO(selected.syncedAt) : "unknown"}</Typography>
+      {selected.kind === "household" && <>
+        <Typography variant="body2">Household location shared by enrolled members; this is not an individual GPS measurement.</Typography>
+        <Typography variant="body2">Source accuracy: {selected.accuracy ?? "unspecified"} · Source elevation: {selected.elevation ?? "unspecified"}</Typography>
+      </>}
       <Button size="small" onClick={() => setSelectedId(null)}>Close point details</Button>
     </Paper>}
     <Typography variant="caption">Geographic overlay · north up · WGS84 coordinates · Mercator display · no basemap</Typography>

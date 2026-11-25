@@ -18,6 +18,9 @@ const SCOPE = `query GeoScope($source:String!,$district:String!,$offset:Int!,$mi
 const GEOMETRY = `query GeoGeometry($id:ID!){mappingGeometryAccess(referenceId:$id){status revision relation source geojson refreshStatus acceptedAt importedAt observedRevision}}`;
 const POINTS = `query GeographicPoints($id:ID!,$offset:Int!,$limit:Int!){
   mappingPoints(areaReferenceId:$id,offset:$offset,limit:$limit){totalCount scopedCount items{${FIELDS}}}}`;
+const HOUSEHOLDS = `query ProjectHouseholdPoints($id:UUID!,$offset:Int!,$limit:Int!){
+  mappingProjectHouseholds(projectId:$id,offset:$offset,limit:$limit){totalCount scopedCount
+    items{id code name kind sourceInstance latitude longitude accuracy elevation syncedAt pointStatus}}}`;
 const EMPTY = [];
 
 function GeometryLayer({ reference, color, refresh, onLayer }) {
@@ -36,7 +39,38 @@ function GeometryLayer({ reference, color, refresh, onLayer }) {
   </Box>;
 }
 
-function DistrictView({ district, microUuid, refresh }) {
+function ProjectHouseholds({ projectId, refresh, householdAccess, children }) {
+  const [householdPage, setHouseholdPage] = useState(0);
+  const [householdPageSize, setHouseholdPageSize] = useState(50);
+  const householdState = useGeoQuery(HOUSEHOLDS, { id: projectId || "", offset: householdPage * householdPageSize, limit: householdPageSize },
+    refresh, !projectId || !householdAccess);
+  const householdData = householdState.data?.mappingProjectHouseholds;
+  const householdPoints = householdData?.items || EMPTY;
+  const lastHouseholdPage = Math.max(0, Math.ceil((householdData?.totalCount || 0) / householdPageSize) - 1);
+  React.useEffect(() => {
+    if (householdData && householdPage > lastHouseholdPage) setHouseholdPage(0);
+  }, [householdData, householdPage, lastHouseholdPage]);
+  const householdPanel = <>
+    {projectId && householdAccess && <Box my={1}>
+      <Typography variant="subtitle1">Enrolled household locations</Typography>
+      <Typography variant="body2">One marker per authorised household linked to active project enrolments. Household GPS does not establish polygon coverage or an individual measurement.</Typography>
+      {householdState.loading && <Typography role="status">Reading enrolled household coordinates…</Typography>}
+      {householdState.error && <Typography color="error" role="alert">{householdState.error}</Typography>}
+      {householdData && <>
+        <Typography variant="body2">{householdData.totalCount} of {householdData.scopedCount} enrolled households have usable stored GPS.
+          {householdData.totalCount === 0 && " No household markers are available for this project within your access scope."}</Typography>
+        <TablePagination component="div" count={householdData.totalCount} page={Math.min(householdPage, lastHouseholdPage)}
+          rowsPerPage={householdPageSize} rowsPerPageOptions={[25, 50, 100]} labelRowsPerPage="Households per page"
+          onPageChange={(_, page) => setHouseholdPage(page)}
+          onRowsPerPageChange={(event) => { setHouseholdPageSize(Number(event.target.value)); setHouseholdPage(0); }} />
+      </>}
+    </Box>}
+    {projectId && !householdAccess && <Typography variant="body2">Household GPS layer is unavailable. It requires project GPS access and an enabled household overlay.</Typography>}
+  </>;
+  return children(householdPoints, householdPanel);
+}
+
+function DistrictView({ district, microUuid, refresh, householdPoints, householdPanel }) {
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState("");
   const [layers, setLayers] = useState({});
@@ -73,7 +107,8 @@ function DistrictView({ district, microUuid, refresh }) {
       <Button disabled={!offset} onClick={() => { setSelected(""); setPointPage(0); setOffset(Math.max(0, offset - 100)); }}>Previous catchments</Button>
       <Button disabled={offset + 100 >= (state.data?.catchments?.totalCount || 0)} onClick={() => { setSelected(""); setPointPage(0); setOffset(offset + 100); }}>Next catchments</Button>
     </Box>}
-    <BoundaryMap key={key} layers={state.loading || state.error ? EMPTY : visibleLayers} points={points} />
+    <BoundaryMap key={key} layers={state.loading || state.error ? EMPTY : visibleLayers} points={points} householdPoints={householdPoints} />
+    {householdPanel}
     {pointArea && <Box my={1}>
       <Typography variant="body2">{micro ? "Points for the selected micro-catchment and its verified members." : "Geographic points in the selected district and source."} Coordinates are geographic reference data.</Typography>
       {pointState.loading && <Typography role="status">Reading stored geographic coordinates…</Typography>}
@@ -92,7 +127,7 @@ function DistrictView({ district, microUuid, refresh }) {
   </Box>;
 }
 
-function MappingContent({ microCatchmentUuid }) {
+function MappingContent({ microCatchmentUuid, projectId, householdAccess }) {
   const [refresh, setRefresh] = useState(0);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState("");
@@ -119,7 +154,12 @@ function MappingContent({ microCatchmentUuid }) {
     </Box>}
     {!microCatchmentUuid && !localDistrict && <Typography>Select a district to display its geographic information.</Typography>}
     {(microCatchmentUuid || localDistrict) && !state.loading && !state.error && !options.length && <Typography>No geographic information is available for this selection within your access scope.</Typography>}
-    {district && <DistrictView key={`${district.id}:${refresh}`} district={district} microUuid={microCatchmentUuid} refresh={refresh} />}
+    <ProjectHouseholds key={`${projectId || ""}:${refresh}`} projectId={projectId} refresh={refresh} householdAccess={householdAccess}>
+      {(householdPoints, householdPanel) => district
+        ? <DistrictView key={`${district.id}:${refresh}`} district={district} microUuid={microCatchmentUuid}
+            refresh={refresh} householdPoints={householdPoints} householdPanel={householdPanel} />
+        : <>{projectId && householdAccess && <BoundaryMap householdPoints={householdPoints} />}{householdPanel}</>}
+    </ProjectHouseholds>
   </Paper>;
 }
 
@@ -131,5 +171,10 @@ export default function MappingMap(props) {
   if (!config.enabled || !hasCapability(rights, config.viewRights)) {
     return <Typography role="alert">Mapping is not enabled or you do not have access.</Typography>;
   }
-  return <MappingContent key={JSON.stringify([identity, rights])} {...props} />;
+  if (props.projectId && !hasCapability(rights, config.projectRights)) {
+    return <Typography role="alert">You do not have project mapping access.</Typography>;
+  }
+  const householdAccess = config.projectOverlayEnabled && hasCapability(rights, config.projectRights) && hasCapability(rights, config.gpsRights);
+  return <MappingContent key={JSON.stringify([identity, rights, config.gpsRights, config.projectOverlayEnabled])}
+    {...props} householdAccess={householdAccess} />;
 }

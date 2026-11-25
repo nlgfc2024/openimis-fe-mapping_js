@@ -78,3 +78,12 @@ warning after replacement failure. CoreMIS date formatting is reused. An optiona
 numeric `fe-mapping.staleAfterDays` warns when an import exceeds the configured
 age. The default is unset: the module does not invent an age policy or claim the
 upstream source is current. Refresh map remains a local read.
+## Enrolled household points
+
+The shared map accepts an explicit `projectId` UUID. When project/GPS rights and
+the configured project overlay are enabled, it requests authorised household GPS
+from `mappingProjectHouseholds`. It displays one marker per household, with separate
+layer controls, pagination and household-labelled details. Household GPS can be
+shown without boundary references; project enrolments remain owned by CoreMIS.
+Configure `fe-mapping.gpsRights` and `fe-mapping.projectOverlayEnabled` through the
+backend Mapping configuration command. This module does not grant permissions.

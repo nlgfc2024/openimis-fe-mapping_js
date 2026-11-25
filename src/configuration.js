@@ -8,5 +8,7 @@ export function mappingConfiguration(manager) {
     enabled: manager.getConf("fe-mapping", "enabled", false) === true,
     viewRights: manager.getConf("fe-mapping", "viewRights", []),
     projectRights: manager.getConf("fe-mapping", "projectRights", []),
+    gpsRights: manager.getConf("fe-mapping", "gpsRights", []),
+    projectOverlayEnabled: manager.getConf("fe-mapping", "projectOverlayEnabled", false) === true,
   };
 }
