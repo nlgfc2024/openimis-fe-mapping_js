@@ -87,3 +87,10 @@ layer controls, pagination and household-labelled details. Household GPS can be
 shown without boundary references; project enrolments remain owned by CoreMIS.
 Configure `fe-mapping.gpsRights` and `fe-mapping.projectOverlayEnabled` through the
 backend Mapping configuration command. This module does not grant permissions.
+## Households at a shared location
+
+Households with identical stored latitude/longitude on the current page share a
+counted marker. Click it or press Enter/Space, then use “Household at this location”
+to inspect each household's details. Counts describe the current page, not unseen
+households on other pages. Nearby coordinates are not merged, and no coordinates
+are rounded or displaced. Geographic reference markers remain separate.

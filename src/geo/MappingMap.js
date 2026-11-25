@@ -53,7 +53,7 @@ function ProjectHouseholds({ projectId, refresh, householdAccess, children }) {
   const householdPanel = <>
     {projectId && householdAccess && <Box my={1}>
       <Typography variant="subtitle1">Enrolled household locations</Typography>
-      <Typography variant="body2">One marker per authorised household linked to active project enrolments. Household GPS does not establish polygon coverage or an individual measurement.</Typography>
+      <Typography variant="body2">Authorised households linked to active project enrolments. Households sharing exact GPS on this page use a counted marker. Household GPS does not establish polygon coverage or an individual measurement.</Typography>
       {householdState.loading && <Typography role="status">Reading enrolled household coordinates…</Typography>}
       {householdState.error && <Typography color="error" role="alert">{householdState.error}</Typography>}
       {householdData && <>

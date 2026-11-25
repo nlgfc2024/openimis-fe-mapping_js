@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Box, Button, Checkbox, FormControlLabel, Paper, Typography } from "@material-ui/core";
+import { Box, Button, Checkbox, FormControlLabel, Paper, Typography, TextField } from "@material-ui/core";
 import { fitPaths, polygonPaths, projectPoint } from "./geometry";
 import { useModulesManager, useTranslations } from "@openimis/fe-core";
+import { householdMarkerGroups } from "./householdMarkers";
 
 const EMPTY = [];
 const POINT_COLOR = "#6a1b9a";
@@ -30,10 +31,15 @@ export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdP
   useEffect(() => { setView({ zoom: 1, x: 0, y: 0 }); }, [layers, points, householdPoints, hidden, showPoints, showHouseholds]);
   const move = (x, y) => setView((v) => ({ ...v, x: v.x + x, y: v.y + y }));
   const selected = prepared.markers.find((point) => point.id === selectedId);
+  const markerGroups = useMemo(() => householdMarkerGroups(prepared.markers), [prepared.markers]);
+  const selectedGroup = markerGroups.find((group) => group.members.some((point) => point.id === selectedId));
   useEffect(() => {
     if (selectedId && !selected) setSelectedId(null);
   }, [selectedId, selected]);
   const describe = (point) => `${point.name} · ${point.kind.replace(/_/g, " ")} · ${point.sourceInstance} · ${point.latitude}, ${point.longitude}`;
+  const describeGroup = (group) => group.members.length > 1
+    ? `${group.members.length} households at the same stored coordinates on this page. Select to choose a household.`
+    : describe(group.members[0]);
   return <Box>
     <Box display="flex" flexWrap="wrap">
       <Button onClick={() => setView((v) => ({ ...v, zoom: Math.min(16, v.zoom * 1.5) }))}>Zoom in</Button>
@@ -51,15 +57,22 @@ export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdP
         {prepared.layers.map((layer) => layer.paths.map((path, i) =>
           <path key={`${layer.id}-${i}`} d={path} fill={layer.color} fillOpacity="0.2" stroke={layer.color}
             strokeWidth="2" vectorEffect="non-scaling-stroke" fillRule="evenodd"><title>{layer.name}</title></path>))}
-        {prepared.markers.map((point) => <g key={point.id} role="button" tabIndex={0} aria-label={describe(point)}
-          onClick={() => setSelectedId(point.id)} onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(point.id); }
-          }} style={{ cursor: "pointer" }}>
-          <title>{describe(point)}</title>
-          <circle cx={point.point[0]} cy={point.point[1]} r={(point.id === selectedId ? 7 : 5) / view.zoom}
-            fill={point.id === selectedId ? (point.kind === "household" ? "#008577" : POINT_COLOR) : "white"}
-            stroke={point.kind === "household" ? "#008577" : POINT_COLOR} strokeWidth="2" vectorEffect="non-scaling-stroke" />
-        </g>)}
+        {markerGroups.map((group) => {
+          const point = group.members[0], counted = group.members.length > 1;
+          const active = group === selectedGroup;
+          const color = point.kind === "household" ? "#008577" : POINT_COLOR;
+          const select = () => setSelectedId(active ? selectedId : point.id);
+          return <g key={group.id} role="button" tabIndex={0} aria-label={describeGroup(group)}
+            onClick={select} onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); }
+            }} style={{ cursor: "pointer" }}>
+            <title>{describeGroup(group)}</title>
+            <circle cx={group.point[0]} cy={group.point[1]} r={(counted ? 16 : active ? 7 : 5) / view.zoom}
+              fill={counted || active ? color : "white"} stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+            {counted && <text x={group.point[0]} y={group.point[1]} dy="0.35em" textAnchor="middle"
+              fill="white" fontSize={12 / view.zoom} fontWeight="bold" pointerEvents="none">{group.members.length}</text>}
+          </g>;
+        })}
       </g>
     </svg>
     {!prepared.markers.length && !prepared.layers.some((layer) => layer.paths.length) &&
@@ -72,6 +85,14 @@ export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdP
     {householdPoints.length > 0 && <FormControlLabel control={<Checkbox checked={showHouseholds} onChange={() => setShowHouseholds((value) => !value)} />}
       label={<span style={{ color: "#008577" }}>Enrolled households</span>} />}
     {selected && <Paper variant="outlined" style={{ padding: 12 }} role="status" aria-label="Geographic point details">
+      {selectedGroup?.members.length > 1 && <Box mb={1}>
+        <Typography variant="body2">{selectedGroup.members.length} households on this page share these exact stored coordinates.</Typography>
+        <TextField select fullWidth label="Household at this location" value={selectedId}
+          inputProps={{ "aria-label": "Household at this location" }}
+          SelectProps={{ native: true }} onChange={(event) => setSelectedId(event.target.value)}>
+          {selectedGroup.members.map((point) => <option key={point.id} value={point.id}>{point.name} · {point.code}</option>)}
+        </TextField>
+      </Box>}
       <Typography><strong>{selected.name}</strong> · {selected.code}</Typography>
       <Typography variant="body2">Type: {selected.kind.replace(/_/g, " ")} · Source: {selected.sourceInstance}
         {selected.externalId && ` · Source ID: ${selected.externalId}`}</Typography>
