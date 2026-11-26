@@ -4,6 +4,8 @@ import useGeoQuery from "./useGeoQuery";
 import useGeoCollection from "./useGeoCollection";
 import useBoundaryLayers from "./useBoundaryLayers";
 import { catchmentColor } from "./geoCollections";
+import CatchmentPanel from "./CatchmentPanel";
+import { makeStyles } from "@material-ui/core/styles";
 import BoundaryMap from "./BoundaryMap";
 import PublicationStatus from "./PublicationStatus";
 import { usablePoint } from "./publication";
@@ -24,6 +26,12 @@ const HOUSEHOLDS = `query ProjectHouseholdPoints($id:UUID!,$offset:Int!,$limit:I
   mappingProjectHouseholds(projectId:$id,offset:$offset,limit:$limit){totalCount scopedCount
     items{id code name kind sourceInstance latitude longitude accuracy elevation syncedAt pointStatus}}}`;
 const EMPTY = [];
+const useOverviewStyles = makeStyles((theme) => ({
+  mapLayout: { display: "flex", alignItems: "flex-start", gap: 16, marginTop: 12,
+    [theme.breakpoints.down("sm")]: { flexDirection: "column" } },
+  catchmentPanel: { width: 260, flexShrink: 0, [theme.breakpoints.down("sm")]: { width: "100%" } },
+  mapArea: { flex: 1, minWidth: 0, width: "100%" },
+}));
 
 function BoundaryPublication({ reference, record = {} }) {
   return <Box>
@@ -68,6 +76,7 @@ function ProjectHouseholds({ projectId, refresh, householdAccess, children }) {
 }
 
 function DistrictView({ district, microUuid, refresh, projectId, projectAccess, householdAccess }) {
+  const classes = useOverviewStyles();
   const [selected, setSelected] = useState("");
   const [focusRevision, setFocusRevision] = useState(0);
   const [pointPage, setPointPage] = useState(0);
@@ -116,6 +125,7 @@ function DistrictView({ district, microUuid, refresh, projectId, projectAccess, 
     {state.loading && <Typography role="status">Loading all authorised catchments…</Typography>}
     {state.error && <Typography color="error" role="alert">{state.error}</Typography>}
     {!microUuid && <TextField select fullWidth label="Micro-catchment" value={micro?.id || ""}
+      variant="outlined" margin="normal" InputLabelProps={{ shrink: true }}
       SelectProps={{ native: true }} inputProps={{ "aria-label": "Micro-catchment" }}
       onChange={(event) => chooseCatchment(event.target.value)}>
       <option value="">All catchments — district overview</option>
@@ -138,6 +148,7 @@ function DistrictView({ district, microUuid, refresh, projectId, projectAccess, 
       {projectState.error && <Typography role="alert" color="error">{projectState.error}</Typography>}
       {!micro.matched && <Typography>This catchment has no CoreMIS match for project exploration.</Typography>}
       {projects.length > 0 && <TextField select fullWidth label="Project in selected catchment" value={project?.id || ""}
+        variant="outlined" margin="normal" InputLabelProps={{ shrink: true }}
         SelectProps={{ native: true }} inputProps={{ "aria-label": "Project in selected catchment" }}
         onChange={(event) => setSelectedProject(event.target.value)}>
         <option value="">Select a project for enrolled household locations</option>
@@ -146,14 +157,21 @@ function DistrictView({ district, microUuid, refresh, projectId, projectAccess, 
       {micro.matched && !projectState.loading && !projectState.error && !projects.length &&
         <Typography>No authorised linked projects are available for this catchment.</Typography>}
     </Box>}
-    <ProjectHouseholds key={`${effectiveProjectId || ""}:${refresh}`} projectId={effectiveProjectId} refresh={refresh} householdAccess={householdAccess}>
-      {(householdPoints, householdPanel) => <>
-        <BoundaryMap key={`${district.id}:${micro?.id || "overview"}:${refresh}:${focusRevision}`} layers={layers}
-          focusLayerId={focus} selectedLayerId={micro?.id} onSelectLayer={microUuid ? undefined : chooseCatchment}
-          points={pointState.data?.mappingPoints?.items || EMPTY} householdPoints={householdPoints} />
-        {householdPanel}
-      </>}
-    </ProjectHouseholds>
+    <Box className={classes.mapLayout}>
+      {!microUuid && <Box className={classes.catchmentPanel}>
+        <CatchmentPanel references={refs} records={records} district={districtRef} selectedId={micro?.id} onSelect={chooseCatchment} />
+      </Box>}
+      <Box className={classes.mapArea}>
+        <ProjectHouseholds key={`${effectiveProjectId || ""}:${refresh}`} projectId={effectiveProjectId} refresh={refresh} householdAccess={householdAccess}>
+          {(householdPoints, householdPanel) => <>
+            <BoundaryMap key={`${district.id}:${micro?.id || "overview"}:${refresh}:${focusRevision}`} layers={layers}
+              compactLegend focusLayerId={focus} selectedLayerId={micro?.id} onSelectLayer={microUuid ? undefined : chooseCatchment}
+              points={pointState.data?.mappingPoints?.items || EMPTY} householdPoints={householdPoints} />
+            {householdPanel}
+          </>}
+        </ProjectHouseholds>
+      </Box>
+    </Box>
     {pointArea && <Box my={1}>
       <Typography variant="body2">{micro ? "Points for the selected micro-catchment and its verified members." : "Geographic points in the selected district and source."} Coordinates are geographic reference data.</Typography>
       {pointState.loading && <Typography role="status">Reading stored geographic coordinates…</Typography>}

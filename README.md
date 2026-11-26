@@ -112,3 +112,12 @@ Additional host interaction checks:
 ```bash
 NODE_PATH=../openimis-fe_js/node_modules node test/districtOverview.test.js
 ```
+## Compact catchment filters
+
+The district map has a responsive, scrollable catchment panel with name/code
+search, All / On map / No geometry filters, colour swatches and selected/status
+badges. List filtering does not hide or change source polygons. "On map" indicates
+available geometry, independently of the CoreMIS record-match status. Source-area
+relations and codes remain available in row tooltips and publication details.
+The full layer visibility legend is collapsed below the map. Native catchment and
+project selectors use explicit raised labels to avoid overlapping overview text.

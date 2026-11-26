@@ -8,7 +8,7 @@ const EMPTY = [];
 const POINT_COLOR = "#6a1b9a";
 
 export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdPoints = EMPTY,
-  focusLayerId = null, selectedLayerId = null, onSelectLayer }) {
+  focusLayerId = null, selectedLayerId = null, onSelectLayer, compactLegend = false }) {
   const manager = useModulesManager();
   const { formatDateTimeFromISO } = useTranslations("mapping", manager);
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
@@ -91,7 +91,11 @@ export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdP
     </svg>
     {!prepared.markers.length && !prepared.layers.some((layer) => layer.paths.length) &&
       <Typography>No visible boundaries or geographic points. See availability information below.</Typography>}
-    {layers.map((layer) => <FormControlLabel key={layer.id}
+    {compactLegend ? <details><summary>Boundary layer visibility</summary>
+      {layers.map((layer) => <FormControlLabel key={layer.id}
+        control={<Checkbox checked={!hidden[layer.id]} onChange={() => setHidden((s) => ({ ...s, [layer.id]: !s[layer.id] }))} />}
+        label={<span style={{ color: layer.color }}>{layer.name}</span>} />)}
+    </details> : layers.map((layer) => <FormControlLabel key={layer.id}
       control={<Checkbox checked={!hidden[layer.id]} onChange={() => setHidden((s) => ({ ...s, [layer.id]: !s[layer.id] }))} />}
       label={<span style={{ color: layer.color }}>{layer.name}</span>} />)}
     <FormControlLabel control={<Checkbox checked={showPoints} onChange={() => setShowPoints((value) => !value)} />}
