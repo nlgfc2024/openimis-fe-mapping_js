@@ -7,7 +7,8 @@ import { householdMarkerGroups } from "./householdMarkers";
 const EMPTY = [];
 const POINT_COLOR = "#6a1b9a";
 
-export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdPoints = EMPTY }) {
+export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdPoints = EMPTY,
+  focusLayerId = null, selectedLayerId = null, onSelectLayer }) {
   const manager = useModulesManager();
   const { formatDateTimeFromISO } = useTranslations("mapping", manager);
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
@@ -15,6 +16,8 @@ export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdP
   const [showPoints, setShowPoints] = useState(true);
   const [showHouseholds, setShowHouseholds] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
+  const [fitAll, setFitAll] = useState(false);
+  useEffect(() => { setFitAll(false); }, [focusLayerId]);
   const prepared = useMemo(() => {
     const valid = [], markers = [], errors = [];
     layers.filter((layer) => !hidden[layer.id]).forEach((layer) => {
@@ -26,9 +29,9 @@ export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdP
       try { markers.push({ ...point, point: projectPoint([point.longitude, point.latitude]) }); }
       catch (_) { errors.push(`${point.name}: the stored coordinates cannot be rendered.`); }
     });
-    return { ...fitPaths(valid, markers), errors };
-  }, [layers, points, householdPoints, hidden, showPoints, showHouseholds]);
-  useEffect(() => { setView({ zoom: 1, x: 0, y: 0 }); }, [layers, points, householdPoints, hidden, showPoints, showHouseholds]);
+    return { ...fitPaths(valid, markers, fitAll ? null : focusLayerId), errors };
+  }, [layers, points, householdPoints, hidden, showPoints, showHouseholds, focusLayerId, fitAll]);
+  useEffect(() => { setView({ zoom: 1, x: 0, y: 0 }); }, [layers, points, householdPoints, hidden, showPoints, showHouseholds, focusLayerId, fitAll]);
   const move = (x, y) => setView((v) => ({ ...v, x: v.x + x, y: v.y + y }));
   const selected = prepared.markers.find((point) => point.id === selectedId);
   const markerGroups = useMemo(() => householdMarkerGroups(prepared.markers), [prepared.markers]);
@@ -44,7 +47,8 @@ export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdP
     <Box display="flex" flexWrap="wrap">
       <Button onClick={() => setView((v) => ({ ...v, zoom: Math.min(16, v.zoom * 1.5) }))}>Zoom in</Button>
       <Button onClick={() => setView((v) => ({ ...v, zoom: Math.max(1, v.zoom / 1.5) }))}>Zoom out</Button>
-      <Button onClick={() => setView({ zoom: 1, x: 0, y: 0 })}>Fit map</Button>
+      <Button onClick={() => { setFitAll(false); setView({ zoom: 1, x: 0, y: 0 }); }}>Fit map</Button>
+      {focusLayerId && <Button onClick={() => setFitAll(true)}>Fit all layers</Button>}
       <Button onClick={() => move(40, 0)} aria-label="Pan west">←</Button>
       <Button onClick={() => move(-40, 0)} aria-label="Pan east">→</Button>
       <Button onClick={() => move(0, 40)} aria-label="Pan north">↑</Button>
@@ -54,9 +58,19 @@ export default function BoundaryMap({ layers = EMPTY, points = EMPTY, householdP
     <svg viewBox="0 0 800 480" role="group" aria-label="Geographic boundary and point map"
       style={{ width: "100%", maxHeight: 550, background: "#f0f5f8", border: "1px solid #b0bec5" }}>
       <g transform={`translate(${view.x},${view.y}) translate(400,240) scale(${view.zoom}) translate(-400,-240)`}>
-        {prepared.layers.map((layer) => layer.paths.map((path, i) =>
-          <path key={`${layer.id}-${i}`} d={path} fill={layer.color} fillOpacity="0.2" stroke={layer.color}
-            strokeWidth="2" vectorEffect="non-scaling-stroke" fillRule="evenodd"><title>{layer.name}</title></path>))}
+        {prepared.layers.map((layer) => <g key={layer.id}
+          role={layer.selectable && onSelectLayer ? "button" : undefined}
+          tabIndex={layer.selectable && onSelectLayer ? 0 : undefined}
+          aria-label={layer.selectable && onSelectLayer ? `Select ${layer.name}` : undefined}
+          onClick={layer.selectable && onSelectLayer ? () => onSelectLayer(layer.id) : undefined}
+          onKeyDown={layer.selectable && onSelectLayer ? (event) => {
+            if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectLayer(layer.id); }
+          } : undefined} style={{ cursor: layer.selectable && onSelectLayer ? "pointer" : "default" }}>
+          <title>{layer.name}</title>
+          {layer.paths.map((path, i) => <path key={`${layer.id}-${i}`} d={path} fill={layer.color}
+            fillOpacity={layer.id === selectedLayerId ? 0.3 : 0.12} stroke={layer.color}
+            strokeWidth={layer.id === selectedLayerId ? 4 : 2} vectorEffect="non-scaling-stroke" fillRule="evenodd" />)}
+        </g>)}
         {markerGroups.map((group) => {
           const point = group.members[0], counted = group.members.length > 1;
           const active = group === selectedGroup;

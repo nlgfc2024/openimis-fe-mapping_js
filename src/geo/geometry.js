@@ -30,8 +30,10 @@ export function projectPoint(point) {
   return [lng, -Math.log(Math.tan(Math.PI / 4 + projectedLatitude * Math.PI / 360)) * 180 / Math.PI];
 }
 
-export function fitPaths(layers, markers = []) {
-  const points = [...layers.flatMap((layer) => layer.paths.flat(2)), ...markers.map((marker) => marker.point)];
+export function fitPaths(layers, markers = [], focusLayerId = null) {
+  const focused = layers.find((layer) => layer.id === focusLayerId);
+  const points = focused?.paths.flat(2).length ? focused.paths.flat(2)
+    : [...layers.flatMap((layer) => layer.paths.flat(2)), ...markers.map((marker) => marker.point)];
   if (!points.length) return { viewBox: "0 0 800 480", layers: [], markers: [] };
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   points.forEach(([x, y]) => { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); });

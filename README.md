@@ -94,3 +94,21 @@ counted marker. Click it or press Enter/Space, then use “Household at this loc
 to inspect each household's details. Counts describe the current page, not unseen
 households on other pages. Nearby coordinates are not merged, and no coordinates
 are rounded or displaced. Geographic reference markers remain separate.
+## District overview and catchment selection
+
+Selecting a district loads all authorised catchment metadata pages and displays
+every available local boundary. Click a catchment (or use the dropdown) to
+highlight and fit its actual geometry. Back to district restores the overview.
+Unavailable catchments remain listed, source-area association labels are retained,
+and shapes crossing the district outline are not clipped to it.
+
+Project-authorised users can explore explicitly linked catchment projects. Select
+a project to reuse the existing separately authorised household GPS layer; clear
+it or disable project exploration to remove those household points. Project-page
+maps retain their pinned project/catchment context. No new basemap is introduced.
+
+Additional host interaction checks:
+
+```bash
+NODE_PATH=../openimis-fe_js/node_modules node test/districtOverview.test.js
+```

@@ -40,3 +40,16 @@ assert.equal(combined.markers.length,1);
 assert.ok(combined.markers[0].point[0]>=30 && combined.markers[0].point[0]<=770);
 assert.ok(combined.markers[0].point[1]>=30 && combined.markers[0].point[1]<=450);
 console.log('Point-only and combined boundary/point projection checks passed.');
+
+const shape=(x,y,size)=>({type:'Polygon',coordinates:[[[x,y],[x+size,y],[x+size,y+size],[x,y+size],[x,y]]]});
+const districtShape=shape(0,0,10),catchmentShape=shape(9.9,1,0.2);
+const before=JSON.stringify([districtShape,catchmentShape]);
+const rawLayers=[{id:'district',paths:polygonPaths(districtShape)},{id:'catchment',paths:polygonPaths(catchmentShape)}];
+const focused=fitPaths(rawLayers,[{id:'outside',point:projectPoint([30,20])}],'catchment');
+const positions=[...focused.layers[1].paths[0].matchAll(/[ML](-?[\d.]+),(-?[\d.]+)/g)].map((match)=>[Number(match[1]),Number(match[2])]);
+assert(positions.every(([x,y])=>x>=29.99&&x<=770.01&&y>=29.99&&y<=450.01));
+assert(focused.markers[0].point[0]>800,'Outside GPS is retained without forcing the catchment fit outwards');
+assert.equal(focused.layers.length,2,'District context is preserved even outside the focused viewport');
+assert.equal(JSON.stringify([districtShape,catchmentShape]),before,'Cross-district source polygons are not clipped or changed');
+assert.deepEqual(fitPaths(rawLayers,[],'missing'),fitPaths(rawLayers));
+console.log('Catchment-only extent and cross-district geometry preservation checks passed.');

@@ -1,6 +1,9 @@
 import React, { useState } from "react";
-import { Box, Button, MenuItem, Paper, TextField, Typography, TablePagination } from "@material-ui/core";
+import { Box, Button, MenuItem, Paper, TextField, Typography, TablePagination, Checkbox, FormControlLabel } from "@material-ui/core";
 import useGeoQuery from "./useGeoQuery";
+import useGeoCollection from "./useGeoCollection";
+import useBoundaryLayers from "./useBoundaryLayers";
+import { catchmentColor } from "./geoCollections";
 import BoundaryMap from "./BoundaryMap";
 import PublicationStatus from "./PublicationStatus";
 import { usablePoint } from "./publication";
@@ -12,10 +15,9 @@ const FIELDS = `id sourceInstance externalId districtUuid name code kind matched
   boundaryStatus revision geometryRelation geometrySource syncedAt refreshStatus geometryRevision geometryUpdatedAt latitude longitude pointStatus`;
 const OPTIONS = `query GeoOptions($kind:String,$micro:String,$offset:Int!,$districtUuid:String){
   mappingAreas(kind:$kind,microCatchmentUuid:$micro,districtUuid:$districtUuid,offset:$offset,limit:100){totalCount items{${FIELDS}}}}`;
-const SCOPE = `query GeoScope($source:String!,$district:String!,$offset:Int!,$micro:String){
+const SCOPE = `query GeoScope($source:String!,$district:String!,$offset:Int!,$limit:Int!,$micro:String){
   district:mappingAreas(sourceInstance:$source,kind:"district",districtUuid:$district,limit:1){items{${FIELDS}}}
-  catchments:mappingAreas(sourceInstance:$source,kind:"micro_catchment",microCatchmentUuid:$micro,districtUuid:$district,offset:$offset,limit:100){totalCount items{${FIELDS}}}}`;
-const GEOMETRY = `query GeoGeometry($id:ID!){mappingGeometryAccess(referenceId:$id){status revision relation source geojson refreshStatus acceptedAt importedAt observedRevision}}`;
+  catchments:mappingAreas(sourceInstance:$source,kind:"micro_catchment",microCatchmentUuid:$micro,districtUuid:$district,offset:$offset,limit:$limit){totalCount items{${FIELDS}}}}`;
 const POINTS = `query GeographicPoints($id:ID!,$offset:Int!,$limit:Int!){
   mappingPoints(areaReferenceId:$id,offset:$offset,limit:$limit){totalCount scopedCount items{${FIELDS}}}}`;
 const HOUSEHOLDS = `query ProjectHouseholdPoints($id:UUID!,$offset:Int!,$limit:Int!){
@@ -23,21 +25,16 @@ const HOUSEHOLDS = `query ProjectHouseholdPoints($id:UUID!,$offset:Int!,$limit:I
     items{id code name kind sourceInstance latitude longitude accuracy elevation syncedAt pointStatus}}}`;
 const EMPTY = [];
 
-function GeometryLayer({ reference, color, refresh, onLayer }) {
-  const state = useGeoQuery(GEOMETRY, { id: reference.id }, refresh);
-  const result = state.data?.mappingGeometryAccess;
-  React.useEffect(() => {
-    onLayer(reference.id, result?.status === "available" ? { id: reference.id, color,
-      name: `${reference.name} (${result.relation === "source_area_association" ? "source-area association" : result.relation || "unspecified relation"})`,
-      geojson: result.geojson } : null);
-    return () => onLayer(reference.id, null);
-  }, [result, reference.id, color]);
+function BoundaryPublication({ reference, record = {} }) {
   return <Box>
-    <PublicationStatus reference={reference} result={result} loading={state.loading} error={state.error} />
-    {usablePoint(reference) && result?.status !== "available" &&
+    <PublicationStatus reference={reference} result={record.result} loading={record.loading !== false} error={record.error} />
+    {usablePoint(reference) && record.result?.status !== "available" &&
       <Typography variant="body2">Geographic coordinates are available independently of a boundary.</Typography>}
   </Box>;
 }
+
+const PROJECTS = `query CatchmentProjects($id:ID!,$offset:Int!,$limit:Int!){
+  mappingCatchmentProjects(referenceId:$id,offset:$offset,limit:$limit){totalCount items{id code name status}}}`;
 
 function ProjectHouseholds({ projectId, refresh, householdAccess, children }) {
   const [householdPage, setHouseholdPage] = useState(0);
@@ -70,45 +67,93 @@ function ProjectHouseholds({ projectId, refresh, householdAccess, children }) {
   return children(householdPoints, householdPanel);
 }
 
-function DistrictView({ district, microUuid, refresh, householdPoints, householdPanel }) {
-  const [offset, setOffset] = useState(0);
+function DistrictView({ district, microUuid, refresh, projectId, projectAccess, householdAccess }) {
   const [selected, setSelected] = useState("");
-  const [layers, setLayers] = useState({});
+  const [focusRevision, setFocusRevision] = useState(0);
   const [pointPage, setPointPage] = useState(0);
   const [pointPageSize, setPointPageSize] = useState(50);
-  const state = useGeoQuery(SCOPE, { source: district.sourceInstance, district: district.districtUuid, offset, micro: microUuid || null }, refresh);
-  const refs = state.data?.catchments?.items?.filter((r) => r.kind === "micro_catchment" && (!microUuid || r.microCatchmentUuid === microUuid)) || [];
-  const micro = refs.find((r) => r.id === selected) || (microUuid ? refs[0] : null);
+  const [showProjects, setShowProjects] = useState(true);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const state = useGeoCollection(SCOPE, { source: district.sourceInstance, district: district.districtUuid,
+    micro: microUuid || null }, "catchments", refresh);
+  const refs = state.data?.catchments?.items?.filter((r) => r.kind === "micro_catchment" && (!microUuid || r.microCatchmentUuid === microUuid)) || EMPTY;
+  const micro = microUuid ? refs.find((r) => r.microCatchmentUuid === microUuid) : refs.find((r) => r.id === selected);
   const districtRef = state.data?.district?.items?.[0];
+  const references = [districtRef, ...refs].filter(Boolean);
+  const records = useBoundaryLayers(references, refresh);
+  const layers = references.flatMap((r) => {
+    const result = records[r.id]?.result;
+    if (result?.status !== "available") return [];
+    return [{ id: r.id, color: r.kind === "district" ? "#1565c0" : catchmentColor(refs.indexOf(r)),
+      name: `${r.name} (${result.relation === "source_area_association" ? "source-area association" : result.relation || "unspecified relation"})`,
+      selectable: r.kind === "micro_catchment", geojson: result.geojson }];
+  });
+  const chooseCatchment = (id) => { setSelected(id); setFocusRevision((value) => value + 1); setSelectedProject(null); setPointPage(0); };
   const pointArea = micro || districtRef;
   const pointState = useGeoQuery(POINTS, { id: pointArea?.id || "", offset: pointPage * pointPageSize, limit: pointPageSize },
     refresh, state.loading || !!state.error || !pointArea);
   const pointData = pointState.data?.mappingPoints;
-  const points = pointData?.items || EMPTY;
   const lastPointPage = Math.max(0, Math.ceil((pointData?.totalCount || 0) / pointPageSize) - 1);
-  React.useEffect(() => {
-    if (pointData && pointPage > lastPointPage) setPointPage(0);
-  }, [pointData, pointPage, lastPointPage]);
-
-
-  const update = React.useCallback((id, layer) => setLayers((current) => {
-    const next = { ...current }; if (layer) next[id] = layer; else delete next[id]; return next;
-  }), []);
-  const key = `${district.id}:${micro?.id || ""}:${refresh}:${offset}`;
-  const visibleLayers = [districtRef, micro].filter(Boolean).map((r) => layers[r.id]).filter(Boolean);
+  React.useEffect(() => { if (pointData && pointPage > lastPointPage) setPointPage(0); }, [pointData, pointPage, lastPointPage]);
+  const projectState = useGeoCollection(PROJECTS, { id: micro?.id || "" }, "mappingCatchmentProjects", refresh,
+    !micro || !micro.matched || !projectAccess || !showProjects || !!projectId);
+  const projects = projectState.data?.mappingCatchmentProjects?.items || EMPTY;
+  const project = projects.find((r) => r.id === selectedProject) || (selectedProject === null && projects.length === 1 ? projects[0] : null);
+  const effectiveProjectId = projectId || project?.id || null;
+  const focus = records[micro?.id]?.result?.status === "available" ? micro?.id : null;
+  const statusLabel = (r) => {
+    const record = records[r.id];
+    if (record?.error) return "Read failed";
+    if (record?.loading !== false) return "Loading publication";
+    return record.result?.status === "available" ? "Available" : "Unavailable";
+  };
+  const relationLabel = (r) => {
+    const result = records[r.id]?.result;
+    const relation = result ? result.relation : r.geometryRelation;
+    return relation === "source_area_association" ? "source-area association" : relation || "unspecified relation";
+  };
   return <Box>
+    {state.loading && <Typography role="status">Loading all authorised catchments…</Typography>}
     {state.error && <Typography color="error" role="alert">{state.error}</Typography>}
     {!microUuid && <TextField select fullWidth label="Micro-catchment" value={micro?.id || ""}
-      onChange={(e) => { setSelected(e.target.value); setLayers({}); setPointPage(0); }}>
-      <MenuItem value="">District only</MenuItem>
-      {refs.map((r) => <MenuItem key={r.id} value={r.id}>{r.name} — {r.code}{r.matched ? "" : " (unmatched)"}</MenuItem>)}
+      SelectProps={{ native: true }} inputProps={{ "aria-label": "Micro-catchment" }}
+      onChange={(event) => chooseCatchment(event.target.value)}>
+      <option value="">All catchments — district overview</option>
+      {refs.map((r) => <option key={r.id} value={r.id}>{r.name} — {r.code} · {statusLabel(r)}{r.matched ? "" : " (unmatched)"}</option>)}
     </TextField>}
-    {!microUuid && <Box>
-      <Button disabled={!offset} onClick={() => { setSelected(""); setPointPage(0); setOffset(Math.max(0, offset - 100)); }}>Previous catchments</Button>
-      <Button disabled={offset + 100 >= (state.data?.catchments?.totalCount || 0)} onClick={() => { setSelected(""); setPointPage(0); setOffset(offset + 100); }}>Next catchments</Button>
+    {micro && !microUuid && <Button onClick={() => chooseCatchment("")}>Back to district</Button>}
+    {micro && <Typography variant="subtitle1">Selected catchment: {micro.name} — {micro.code}</Typography>}
+    {micro && !focus && records[micro.id]?.loading === false && <Typography variant="body2">
+      No accepted geometry can be displayed for this catchment. Its publication remains listed; the available district layers provide context.
+    </Typography>}
+    {!state.loading && refs.length > 0 && <Typography variant="body2">
+      {refs.length} authorised catchments listed · {refs.filter((r) => records[r.id]?.result?.status === "available").length} with available geometry.
+      {!micro && " Select a catchment on the map or from the list to zoom to it."}
+      {micro && focus && " Fitted to the selected geometry; Fit all layers restores the full visible extent."}
+    </Typography>}
+    {!projectId && projectAccess && <FormControlLabel control={<Checkbox checked={showProjects}
+      onChange={() => { setShowProjects((value) => !value); setSelectedProject(null); }} />} label="Explore catchment projects" />}
+    {!projectId && showProjects && projectAccess && micro && <Box my={1}>
+      {projectState.loading && <Typography role="status">Loading authorised catchment projects…</Typography>}
+      {projectState.error && <Typography role="alert" color="error">{projectState.error}</Typography>}
+      {!micro.matched && <Typography>This catchment has no CoreMIS match for project exploration.</Typography>}
+      {projects.length > 0 && <TextField select fullWidth label="Project in selected catchment" value={project?.id || ""}
+        SelectProps={{ native: true }} inputProps={{ "aria-label": "Project in selected catchment" }}
+        onChange={(event) => setSelectedProject(event.target.value)}>
+        <option value="">Select a project for enrolled household locations</option>
+        {projects.map((r) => <option key={r.id} value={r.id}>{r.name} · {r.status}</option>)}
+      </TextField>}
+      {micro.matched && !projectState.loading && !projectState.error && !projects.length &&
+        <Typography>No authorised linked projects are available for this catchment.</Typography>}
     </Box>}
-    <BoundaryMap key={key} layers={state.loading || state.error ? EMPTY : visibleLayers} points={points} householdPoints={householdPoints} />
-    {householdPanel}
+    <ProjectHouseholds key={`${effectiveProjectId || ""}:${refresh}`} projectId={effectiveProjectId} refresh={refresh} householdAccess={householdAccess}>
+      {(householdPoints, householdPanel) => <>
+        <BoundaryMap key={`${district.id}:${micro?.id || "overview"}:${refresh}:${focusRevision}`} layers={layers}
+          focusLayerId={focus} selectedLayerId={micro?.id} onSelectLayer={microUuid ? undefined : chooseCatchment}
+          points={pointState.data?.mappingPoints?.items || EMPTY} householdPoints={householdPoints} />
+        {householdPanel}
+      </>}
+    </ProjectHouseholds>
     {pointArea && <Box my={1}>
       <Typography variant="body2">{micro ? "Points for the selected micro-catchment and its verified members." : "Geographic points in the selected district and source."} Coordinates are geographic reference data.</Typography>
       {pointState.loading && <Typography role="status">Reading stored geographic coordinates…</Typography>}
@@ -121,13 +166,19 @@ function DistrictView({ district, microUuid, refresh, householdPoints, household
           onRowsPerPageChange={(event) => { setPointPageSize(Number(event.target.value)); setPointPage(0); }} />
       </>}
     </Box>}
-    {districtRef && <GeometryLayer key={`d${key}`} reference={districtRef} color="#1565c0" refresh={refresh} onLayer={update} />}
-    {micro && <GeometryLayer key={`m${key}`} reference={micro} color="#c65102" refresh={refresh} onLayer={update} />}
-    {!state.loading && !refs.length && <Typography>No matching micro-catchment references on this page.</Typography>}
+    {districtRef && <BoundaryPublication reference={districtRef} record={records[districtRef.id]} />}
+    {micro && <BoundaryPublication reference={micro} record={records[micro.id]} />}
+    {refs.length > 0 && <details><summary>Catchment publications ({refs.length})</summary>
+      {refs.map((r) => <Box key={r.id} my={1}>
+        <Button disabled={!!microUuid} onClick={() => chooseCatchment(r.id)}>{r.name} — {r.code}</Button>
+        <Typography variant="caption">{statusLabel(r)} · {relationLabel(r)}</Typography>
+      </Box>)}
+    </details>}
+    {!state.loading && !state.error && !refs.length && <Typography>No authorised micro-catchment references are available for this selection.</Typography>}
   </Box>;
 }
 
-function MappingContent({ microCatchmentUuid, projectId, householdAccess }) {
+function MappingContent({ microCatchmentUuid, projectId, projectAccess, householdAccess }) {
   const [refresh, setRefresh] = useState(0);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState("");
@@ -154,12 +205,12 @@ function MappingContent({ microCatchmentUuid, projectId, householdAccess }) {
     </Box>}
     {!microCatchmentUuid && !localDistrict && <Typography>Select a district to display its geographic information.</Typography>}
     {(microCatchmentUuid || localDistrict) && !state.loading && !state.error && !options.length && <Typography>No geographic information is available for this selection within your access scope.</Typography>}
-    <ProjectHouseholds key={`${projectId || ""}:${refresh}`} projectId={projectId} refresh={refresh} householdAccess={householdAccess}>
-      {(householdPoints, householdPanel) => district
-        ? <DistrictView key={`${district.id}:${refresh}`} district={district} microUuid={microCatchmentUuid}
-            refresh={refresh} householdPoints={householdPoints} householdPanel={householdPanel} />
-        : <>{projectId && householdAccess && <BoundaryMap householdPoints={householdPoints} />}{householdPanel}</>}
-    </ProjectHouseholds>
+    {district ? <DistrictView key={`${district.id}:${projectId || ""}:${refresh}`} district={district}
+      microUuid={microCatchmentUuid} refresh={refresh} projectId={projectId} projectAccess={projectAccess} householdAccess={householdAccess} />
+      : !state.loading && <ProjectHouseholds key={`${projectId || ""}:${refresh}`} projectId={projectId} refresh={refresh} householdAccess={householdAccess}>
+        {(householdPoints, householdPanel) => <>{projectId && householdAccess && <BoundaryMap householdPoints={householdPoints} />}{householdPanel}</>}
+      </ProjectHouseholds>}
+
   </Paper>;
 }
 
@@ -176,5 +227,5 @@ export default function MappingMap(props) {
   }
   const householdAccess = config.projectOverlayEnabled && hasCapability(rights, config.projectRights) && hasCapability(rights, config.gpsRights);
   return <MappingContent key={JSON.stringify([identity, rights, config.gpsRights, config.projectOverlayEnabled])}
-    {...props} householdAccess={householdAccess} />;
+    {...props} projectAccess={hasCapability(rights, config.projectRights)} householdAccess={householdAccess} />;
 }
