@@ -37,6 +37,7 @@ const dispatch=async(action)=>{
 const config={enabled:true,viewRights:['954001'],projectRights:['954004'],gpsRights:['954005'],projectOverlayEnabled:true};
 const mocks={
   '@openimis/fe-core':{
+    ...require('./coreInputMocks'),
     useModulesManager:()=>({getConf:(module,key,fallback)=>module==='fe-mapping'?config[key]??fallback:fallback}),
     useTranslations:()=>({formatDateTimeFromISO:(value)=>value}),
     graphqlWithVariables:(query,variables)=>({query,variables}),

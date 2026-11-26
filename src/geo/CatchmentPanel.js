@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Box, Button, ButtonBase, ButtonGroup, Paper, TextField, Typography } from "@material-ui/core";
+import { Box, Button, ButtonBase, ButtonGroup, Paper, Typography } from "@material-ui/core";
+import { TextInput } from "@openimis/fe-core";
 import { makeStyles } from "@material-ui/core/styles";
 import { catchmentColor } from "./geoCollections";
 
@@ -31,9 +32,8 @@ export default function CatchmentPanel({ references, records, district, selected
   const visible = references.filter((r) => `${r.name} ${r.code}`.toLowerCase().includes(search.trim().toLowerCase())
     && (filter === "all" || (filter === "mapped" ? status(r) === "On map" : status(r) === "No geometry")));
   return <Paper component="aside" variant="outlined" className={classes.panel} aria-label="Catchment filter">
-    <TextField fullWidth type="search" label="Find catchment" placeholder={`Search ${references.length} catchments`}
-      variant="outlined" size="small" margin="normal" InputLabelProps={{ shrink: true }}
-      inputProps={{ "aria-label": "Find catchment" }} value={search} onChange={(event) => setSearch(event.target.value)} />
+    <TextInput module="mapping" type="search" label="filter.findCatchment" placeholder={`Search ${references.length} catchments`}
+      variant="standard" margin="normal" inputProps={{ "aria-label": "Find catchment" }} value={search} onChange={setSearch} />
     <ButtonGroup className={classes.filters} size="small" aria-label="Catchment availability filter">
       {[["all", "All"], ["mapped", "On map"], ["unavailable", "No geometry"]].map(([value, label]) =>
         <Button key={value} aria-pressed={filter === value} className={filter === value ? classes.filterActive : undefined}

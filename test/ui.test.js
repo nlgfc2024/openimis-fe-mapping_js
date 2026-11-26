@@ -40,6 +40,7 @@ const dispatch = (action) => {
   return Promise.resolve({ payload: { data: { mappingAreas: { items: [], totalCount: 0 } } } });
 };
 const core = {
+  ...require('./coreInputMocks'),
   useModulesManager: () => manager,
   useTranslations: () => ({formatDateTimeFromISO:(value)=>`Host date: ${value}`}),
   useAsyncJob: () => state,

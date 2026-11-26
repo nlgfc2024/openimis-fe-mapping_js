@@ -9,7 +9,7 @@ import { makeStyles } from "@material-ui/core/styles";
 import BoundaryMap from "./BoundaryMap";
 import PublicationStatus from "./PublicationStatus";
 import { usablePoint } from "./publication";
-import { PublishedComponent, useModulesManager } from "@openimis/fe-core";
+import { Autocomplete, PublishedComponent, useModulesManager } from "@openimis/fe-core";
 import { useSelector } from "react-redux";
 import { hasCapability, mappingConfiguration } from "../configuration";
 
@@ -26,6 +26,7 @@ const HOUSEHOLDS = `query ProjectHouseholdPoints($id:UUID!,$offset:Int!,$limit:I
   mappingProjectHouseholds(projectId:$id,offset:$offset,limit:$limit){totalCount scopedCount
     items{id code name kind sourceInstance latitude longitude accuracy elevation syncedAt pointStatus}}}`;
 const EMPTY = [];
+const OVERVIEW = { id: "", name: "All catchments — district overview" };
 const useOverviewStyles = makeStyles((theme) => ({
   mapLayout: { display: "flex", alignItems: "flex-start", gap: 16, marginTop: 12,
     [theme.breakpoints.down("sm")]: { flexDirection: "column" } },
@@ -124,13 +125,12 @@ function DistrictView({ district, microUuid, refresh, projectId, projectAccess, 
   return <Box>
     {state.loading && <Typography role="status">Loading all authorised catchments…</Typography>}
     {state.error && <Typography color="error" role="alert">{state.error}</Typography>}
-    {!microUuid && <TextField select fullWidth label="Micro-catchment" value={micro?.id || ""}
-      variant="outlined" margin="normal" InputLabelProps={{ shrink: true }}
-      SelectProps={{ native: true }} inputProps={{ "aria-label": "Micro-catchment" }}
-      onChange={(event) => chooseCatchment(event.target.value)}>
-      <option value="">All catchments — district overview</option>
-      {refs.map((r) => <option key={r.id} value={r.id}>{r.name} — {r.code} · {statusLabel(r)}{r.matched ? "" : " (unmatched)"}</option>)}
-    </TextField>}
+    {!microUuid && <Box my={2}>
+      <Autocomplete label="Micro-catchment" value={micro || OVERVIEW} options={[OVERVIEW, ...refs]}
+        getOptionLabel={(r) => r.id ? `${r.code} ${r.name} · ${statusLabel(r)}${r.matched ? "" : " (unmatched)"}` : r.name}
+        getOptionSelected={(option, value) => option.id === value?.id}
+        onInputChange={() => {}} onChange={(value) => chooseCatchment(value?.id || "")} />
+    </Box>}
     {micro && !microUuid && <Button onClick={() => chooseCatchment("")}>Back to district</Button>}
     {micro && <Typography variant="subtitle1">Selected catchment: {micro.name} — {micro.code}</Typography>}
     {micro && !focus && records[micro.id]?.loading === false && <Typography variant="body2">
